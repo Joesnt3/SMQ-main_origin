@@ -1,0 +1,40 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# IDE settings
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Experiment outputs and large artifacts
+data/
+raw_data/
+models/
+vis/
+figures/
+
+# Model checkpoints and optimizer states
+*.model
+*.opt
+*.pth
+*.pt
+*.ckpt
+
+# Logs
+*.log
+
+# Local papers/docs
+2025ICCV_Skeleton_Motion_Words_for_Unsupervised_Skeleton-Based_Temporal_Action_Segmentation_ICCV_2025_paper.pdf
