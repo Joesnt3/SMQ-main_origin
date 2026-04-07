@@ -63,6 +63,7 @@ parser.add_argument("--decay", type=float, default=0.5, help="Decay weight.")
 # Loss parameters
 parser.add_argument("--mse_loss_weight", type=float, default=0.001, help="Reconstruction loss weight.")
 parser.add_argument("--commit_weight", type=float, default=1.0, help="Commitment loss weight.")
+parser.add_argument("--lambda_dir", type=float, default=0.1, help="Directional loss weight.")
 parser.add_argument("--joint_distance_recons", action=argparse.BooleanOptionalAction, default=True, help="Use joint-distance reconstruction loss (default: True).")
 parser.add_argument("--vis", action="store_true", help="Enable segmentation visualization during eval.")
 
@@ -165,6 +166,7 @@ if __name__ == "__main__":
             learning_rate=args.lr,# 0.0005
             commit_weight=args.commit_weight,# 1
             mse_loss_weight=args.mse_loss_weight,# 0.001
+            lambda_dir=args.lambda_dir,
             device=device,
             joint_distance_recons = args.joint_distance_recons# True
         )

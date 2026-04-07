@@ -1,0 +1,3 @@
+通过添加 DirectionDiscriminator 并利用负样本（时间反转序列）和 BCEWithLogitsLoss 计算 L_dir，可以强制模型学习时间因果性。这样 Encoder 在遇到 sitting_down 和 standing_up 这种互为逆过程的序列时，将提取出具有区分度的特征 Z，进而引导 VQ 模块将它们映射到 Codebook 中不同的 Index。
+
+lambda_dir 超参数将在 main.py 的 --lambda_dir 参数中配置，并在 trainer.train 传入，默认值为 0.1。

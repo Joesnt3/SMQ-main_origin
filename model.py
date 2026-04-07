@@ -41,6 +41,7 @@ class Trainer:
                            decay=decay)
         
         self.mse = nn.MSELoss(reduction='none')
+        self.bce_logits = nn.BCEWithLogitsLoss()
         """
         如果你的模型需要计算“关节距离重构损失”（joint_distance_recons），
         你可能需要先拿到每个坐标轴（X, Y, Z）的独立平方差，再按空间维度进行组合（比如计算欧氏距离），
@@ -55,7 +56,7 @@ class Trainer:
         """
 
     def train(self, save_dir, batch_gen, num_epochs, batch_size, 
-              learning_rate, commit_weight, mse_loss_weight, device, 
+              learning_rate, commit_weight, mse_loss_weight, lambda_dir, device, 
               joint_distance_recons=True):
         
         # Train mode
@@ -75,6 +76,7 @@ class Trainer:
 
             epoch_rec_loss = 0.0
             epoch_commit = 0.0
+            epoch_dir = 0.0
 
             while batch_gen.has_next():# 一个batch有8个序列样本
                 # batch_input 形状为(N,C,T_max,V,M)的张量，存的是feature，N是当前batch中的样本数量，一般为8
@@ -85,10 +87,27 @@ class Trainer:
 
                 optimizer.zero_grad()# 在loss.backward()时，计算出来的梯度，会被累加到每个参数的grad属性上，会导致梯度数值越来越大，无法收敛。
                 
-                # Forward pass
-                # 实际上，它会自动调用你之前定义的 SMQModel 类中的 forward 函数
-                # batch_input形状：(N,C,T_max,V,M)
-                reconstructed = self.model(batch_input,mask)
+                # --- Forward ---
+                reconstructed, z_fwd = self.model(batch_input, mask, return_z=True)
+                
+                # --- Backward Pass for L_dir ---
+                # 沿时间维度翻转 (N, C, T, V, M) -> dim=2 是T
+                batch_input_bwd = torch.flip(batch_input, dims=[2])
+                mask_bwd = torch.flip(mask, dims=[2])
+                
+                # Forward bwd data through encoder
+                _, z_bwd = self.model(batch_input_bwd, mask_bwd, return_z=True)
+                
+                # Compute Directional Loss
+                # z_fwd shape: (N*M*V, latent_dim, T)
+                pred_fwd = self.model.dir_discriminator(z_fwd)
+                pred_bwd = self.model.dir_discriminator(z_bwd)
+                
+                ones = torch.ones_like(pred_fwd)
+                zeros = torch.zeros_like(pred_bwd)
+                
+                loss_dir = (self.bce_logits(pred_fwd, ones) + self.bce_logits(pred_bwd, zeros)) / 2.0
+                
 
                 # Reconstruction in joint-distance space
                 if joint_distance_recons:
@@ -107,7 +126,7 @@ class Trainer:
                 # 在 SMQModel 的 forward 函数中
                 # quantized, self.indices, self.commit_loss, _ = self.vq(latent, vq_mask)
                 commit_loss = commit_weight * self.model.commit_loss
-                loss = rec_loss + commit_loss
+                loss = rec_loss + commit_loss + lambda_dir * loss_dir
 
                 # Backprop and update weights
                 # 调用loss.backward()时，pytorch会从最后的loss开始，沿着计算图倒着跑，计算出每一个参数的梯度$\frac{\partial Loss}{\partial w}$。
@@ -124,6 +143,7 @@ class Trainer:
 
                 epoch_rec_loss += rec_loss.item()# item():只要数字
                 epoch_commit += commit_loss.item()
+                epoch_dir += loss_dir.item()
 
                 pbar.update(1)# 手动更新进度。括号里的 1 代表完成了一个步骤
 
@@ -138,9 +158,9 @@ class Trainer:
                 torch.save(optimizer.state_dict(), save_dir / f"epoch-{epoch+1}.opt")
             
             # epoch_rec_loss 是这一轮里所有 Batch 的 rec_loss 累加和
-            print("[epoch %d]: Reconstruction Loss = %f -- Commit Loss = %f" % 
+            print("[epoch %d]: Reconstruction Loss = %f -- Commit Loss = %f -- Dir Loss = %f" % 
                   (epoch + 1, epoch_rec_loss / num_batches, 
-                   epoch_commit / num_batches))
+                   epoch_commit / num_batches, epoch_dir / num_batches))
 
     def eval(self, model_path, features_path, gt_path, mapping_file,
                 epoch, vis , plot_dir, device) :

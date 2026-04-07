@@ -1,8 +1,30 @@
+import torch
 import torch.nn as nn
 
 from src.model.motion_quantizer import SkeletonMotionQuantizer
 from src.model.utils import process_mask
 from src.model.ms_tcn import MultiStageModel
+
+class DirectionDiscriminator(nn.Module):
+    """
+    Discriminates whether the input sequence is forward or backward.
+    """
+    def __init__(self, in_channels, hidden_dim=64):
+        super(DirectionDiscriminator, self).__init__()
+        self.pool = nn.AdaptiveAvgPool1d(1)
+        self.flatten = nn.Flatten()
+        self.fc1 = nn.Linear(in_channels, hidden_dim)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(hidden_dim, 1)
+
+    def forward(self, x):
+        # x is assumed to be (Batch, Channels, Time)
+        out = self.pool(x)
+        out = self.flatten(out)
+        out = self.fc1(out)
+        out = self.relu(out)
+        out = self.fc2(out)
+        return out
 
 class SMQModel(nn.Module):
     """
@@ -32,6 +54,9 @@ class SMQModel(nn.Module):
                                        dim = in_channels, target_dim1 = int(self.latent_dim/2), 
                                        target_dim2 = self.latent_dim)
         
+        # Direction Discriminator
+        self.dir_discriminator = DirectionDiscriminator(in_channels=self.latent_dim)
+
         # VQ
         self.vq = SkeletonMotionQuantizer(num_embeddings = num_actions, embedding_dim = latent_dim * num_joints * num_person, 
                       window = patch_size, commitment_cost = 1.0, decay=decay, eps=1e-5,
@@ -44,7 +69,7 @@ class SMQModel(nn.Module):
                                        dim = self.latent_dim, target_dim1 = int(self.latent_dim/2), 
                                        target_dim2 = in_channels)
 
-    def forward(self, x, mask):
+    def forward(self, x, mask, return_z=False):
         """
         Reconstruct skeleton sequences via joint-disentangled 
         autoencoding + SMQ (Patch-based VQ).
@@ -52,6 +77,7 @@ class SMQModel(nn.Module):
         Args:
             x:    (N, C, T, V, M)  skeleton features
             mask: (N, C, T, V, M)  1=valid, 0=padded
+            return_z: bool, if True, also returns the latent features z for L_dir
         Returns:
             out:  (N, C, T, V, M)  reconstructed skeleton features
         """
@@ -60,10 +86,13 @@ class SMQModel(nn.Module):
 
         # Pack person+joint dims : (N, C, T, V, M) -> (N*M*V, C, T)
         x = x.permute(0, 4, 3, 1, 2).contiguous().view(N * M * V, C, T)
-        mask = mask.permute(0, 4, 3, 1, 2).contiguous().view(N * M * V, C, T)
+        mask_flat = mask.permute(0, 4, 3, 1, 2).contiguous().view(N * M * V, C, T)
 
         # Encode joint-disentangled latents: (N*M*V, C, T) -> (N*M*V, latent_dim, T)
-        self.latent = self.encoder(x, mask)
+        self.latent = self.encoder(x, mask_flat)
+        
+        # Save latents to return for discriminitor
+        z_out = self.latent
 
         # Repack into per-frame skeleton : (N*M*V, latent_dim, T) -> (N, T, V, M, latent_dim)
         latent = self.latent.view(N * M, V, self.latent_dim, T).contiguous()  # (N*M, V, latent_dim, T)
@@ -88,11 +117,13 @@ class SMQModel(nn.Module):
         quantized = quantized.reshape(N*M*V, self.latent_dim, T)                             # (N*M*V, latent_dim, T)
 # --------------------------------------------------------
         # Decode : (N*M*V, latent_dim, T) -> (N*M*V, C, T)
-        decoded = self.decoder(quantized, mask)
+        decoded = self.decoder(quantized, mask_flat)
         
         # Unpack back to original skeleton layout: (N, C, T, V, M)
         decoded = decoded.reshape(N * M, V, C, T)
         decoded = decoded.reshape(N, M, V, C, T)
         out = decoded.permute(0, 3, 4, 2, 1)
 
+        if return_z:
+            return out, z_out
         return out
