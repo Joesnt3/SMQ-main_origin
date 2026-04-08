@@ -1,0 +1,12 @@
+1 walking
+2 running
+3 going_up
+4 going_down
+5 sitting
+6 sitting_down
+7 standing_up
+8 standing
+9 bicycling
+10 up_by_elevator
+11 down_by_elevator
+12 sitting_in_car
