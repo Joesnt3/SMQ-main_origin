@@ -132,6 +132,9 @@ class Trainer:
                 # 调用loss.backward()时，pytorch会从最后的loss开始，沿着计算图倒着跑，计算出每一个参数的梯度$\frac{\partial Loss}{\partial w}$。
                 loss.backward()
                 
+                # 【新增】梯度裁剪，防止由于权重差异过大导致梯度爆炸崩溃
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                
                 # adam更新参数的公式如下：
                 # m_t = beta1 * m_{t-1} + (1 - beta1) * g_t
                 # v_t = beta2 * v_{t-1} + (1 - beta2) * (g_t)^2

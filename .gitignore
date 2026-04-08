@@ -20,7 +20,6 @@ Thumbs.db
 .ipynb_checkpoints/
 
 # Experiment outputs and large artifacts
-data/
 raw_data/
 models/
 vis/
